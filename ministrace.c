@@ -184,7 +184,8 @@ int do_child(int argc, char **argv) {
 
     ptrace(PTRACE_TRACEME);
     kill(getpid(), SIGSTOP);
-    return execve(args[0], args, envs);
+    //return execve(args[0], args, envs);
+    return execvp(args[0], args);
 }
 
 int main(int argc, char **argv) {
@@ -228,7 +229,8 @@ int main(int argc, char **argv) {
     }
 
 
-    child = vfork();
+    //child = vfork();
+    child = fork();
     if (child == 0) {
         return do_child(argc-push, argv+push);
     } else {

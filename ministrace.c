@@ -12,6 +12,7 @@
 
 #include "syscalls.h"
 #include "syscallents.h"
+#include "apex.h"
 
 /* cheap trick for reading syscall number / return value. */
 #ifdef __amd64__
@@ -138,17 +139,14 @@ void print_syscall(pid_t child, int syscall_req) {
     print_syscall_args(child, num);
     fprintf(stderr, ") = ");
 
-    if( syscall_req <= MAX_SYSCALL_NUM) {
-        pause_on( num, syscall_req);
-    }
 }
 
-int pause_on(int syscall_req, int syscall) {
-    if(syscall == syscall_req)
-        do {
-            char buf[2];
-            fgets(buf, sizeof(buf), stdin); // waits until enter to continue
-        } while(0);
+apex_profiler_handle start_syscall(pid_t child, int syscall_req) {
+    int num;
+    num = get_reg(child, orig_eax);
+    assert(errno == 0);
+    apex_profiler_handle profiler = apex_start(APEX_NAME_STRING, syscall_name(num));
+    return profiler;
 }
 
 int do_trace(pid_t child, int syscall_req) {
@@ -161,21 +159,24 @@ int do_trace(pid_t child, int syscall_req) {
         if (wait_for_syscall(child) != 0)
             break;
 
-        print_syscall(child, syscall_req);
+        //print_syscall(child, syscall_req);
+        apex_profiler_handle p = start_syscall(child, syscall_req);
 
         if (wait_for_syscall(child) != 0)
             break;
 
         retval = get_reg(child, eax);
         assert(errno == 0);
+        apex_stop(p);
 
-        fprintf(stderr, "%d\n", retval);
+        //fprintf(stderr, "%d\n", retval);
     }
     return 0;
 }
 
 int do_child(int argc, char **argv) {
     char *args [argc+1];
+    char *envs[] = {NULL};
     int i;
     for (i=0;i<argc;i++)
         args[i] = argv[i];
@@ -183,7 +184,7 @@ int do_child(int argc, char **argv) {
 
     ptrace(PTRACE_TRACEME);
     kill(getpid(), SIGSTOP);
-    return execvp(args[0], args);
+    return execve(args[0], args, envs);
 }
 
 int main(int argc, char **argv) {
@@ -227,10 +228,13 @@ int main(int argc, char **argv) {
     }
 
 
-    child = fork();
+    child = vfork();
     if (child == 0) {
         return do_child(argc-push, argv+push);
     } else {
-        return do_trace(child, syscall);
+        apex_init(argv[0], 0, 1);
+        int retval = do_trace(child, syscall);
+        apex_finalize();
+        return retval;
     }
 }
